@@ -3,9 +3,6 @@ package rectyper.compiler
 import scala.tools.nsc.typechecker.Analyzer
 import scala.tools.nsc.Global
 
-/**
- * Created by njeasus on 4/27/14.
- */
 trait RecTyperAnalyzer extends Analyzer {
   selfAnalyser =>
   val global: Global
@@ -13,6 +10,15 @@ trait RecTyperAnalyzer extends Analyzer {
   class RecTyper(context: Context) extends selfAnalyser.Typer(context) {
     import global._
     println("RecTyper is running...")
+
+    object UnTyper extends Traverser {
+      override def traverse(tree: Tree) = {
+        if (tree != EmptyTree) tree.tpe = null;
+        if (tree.hasSymbolField && tree.symbol.isError) tree.symbol = null;
+        super.traverse(tree)
+      }
+    }
+
 
     var cyclicReferences: List[global.Ident] = Nil
     var retypedTrees: Map[global.Tree, global.Type] = Map()
@@ -27,11 +33,11 @@ trait RecTyperAnalyzer extends Analyzer {
             if (errTypes.size > 1) throw new IllegalStateException("Too many errorneous cases")
 
             val okTypes = typedCases.filter(!_.isErroneous).map(t => t.tpe)
-            val okLub = ptOrLub(okTypes, WildcardType)
+            val okLub = lub(okTypes)//, WildcardType)
             val errorCase = errTypes(0)
             println("LUB: " + okLub);
 
-            retypedTrees += (errorneous -> okLub._1)
+            retypedTrees += (errorneous -> okLub)
           });
       }
       typedCases
@@ -51,19 +57,19 @@ trait RecTyperAnalyzer extends Analyzer {
 
         val defCopy = treeCopy.DefDef(ddef, ddef.mods, ddef.name, ddef.tparams, ddef.vparamss, ident, ddef.rhs)
         val res = super.typedDefDef(defCopy)
-        treeBrowser.browse(res) //Show the tree
+//        treeBrowser.browse(res) //Show the tree
         res
       }).getOrElse(typedDef)
     }
 
-    override def typed(tree: Tree, mode: Int, pt: Type): Tree = {
+    override def typed(tree: Tree, mode: scala.tools.nsc.Mode, pt: Type): Tree = {
       tree match {
         case ident @ global.Ident(s) =>
           try {
             super.typed(tree, mode, pt)
           } catch {
             case e: global.CyclicReference =>
-              println("cyclic ident");
+              println("cyclic ident")
               cyclicReferences = ident :: cyclicReferences
               UnTyper.traverse(ident)
               ident
@@ -84,3 +90,5 @@ trait RecTyperAnalyzer extends Analyzer {
   }
 
 }
+
+
